@@ -208,20 +208,29 @@ addEventListener('keydown',e=>{keys[e.code]=1;if(e.code=='Space')fire();if(e.cod
 addEventListener('keyup',e=>{keys[e.code]=0;if(e.key=='Shift')breath=false});
 $('bj').onclick=climb;cv.addEventListener('pointerdown',()=>{const n=performance.now();if(n-lt<320)climb();lt=n});$('bz').onclick=()=>zoom=!zoom;$('bv').onclick=()=>third=!third;$('fire').onpointerdown=e=>{e.preventDefault();fire()};
 $('bb').onpointerdown=()=>breath=true;$('bb').onpointerup=$('bb').onpointerleave=()=>breath=false;
-function startStage(){spawn();ammo=cfg.ammo;left=cfg.time;bull=null;bm.visible=false;pitch=-.69;yaw=0;P.set(0,TH+1.6,0);up=false;zoom=false;third=false;$('ov').style.display='none';state='play';$('obj').textContent='🎯 Stage '+(stage+1)+'/5: '+cfg.w;const tk=++rtok;say(intro());setTimeout(()=>radioLoop(tk),10000)}
+function startStage(){musVol(.28);spawn();ammo=cfg.ammo;left=cfg.time;bull=null;bm.visible=false;pitch=-.69;yaw=0;P.set(0,TH+1.6,0);up=false;zoom=false;third=false;$('ov').style.display='none';state='play';$('obj').textContent='🎯 Stage '+(stage+1)+'/5: '+cfg.w;const tk=++rtok;say(intro());setTimeout(()=>radioLoop(tk),10000)}
+let mus,mT=0,mStep=0,mOn=false;
+const CH=[[110,130.8,164.8],[87.3,110,130.8],[98,123.5,146.8],[82.4,98,123.5]],PAT=[1,0,0,1,1,0,1,0,1,0,0,1,1,0,1,1];
+function drum(t,f,v,d){const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(f*2,t);o.frequency.exponentialRampToValueAtTime(f,t+.08);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(mus);o.start(t);o.stop(t+d+.05);
+const s=ac.createBufferSource();s.buffer=nb;const fl=ac.createBiquadFilter();fl.type='lowpass';fl.frequency.value=400;const ng=ac.createGain();ng.gain.setValueAtTime(v*.5,t);ng.gain.exponentialRampToValueAtTime(.001,t+.12);s.connect(fl);fl.connect(ng);ng.connect(mus);s.start(t);s.stop(t+.15)}
+function pad(t,notes,dur){for(const f of notes.concat(notes[0]/2)){const o=ac.createOscillator(),g=ac.createGain(),l=ac.createBiquadFilter();o.type='sawtooth';o.frequency.value=f;o.detune.value=(Math.random()-.5)*14;l.type='lowpass';l.frequency.setValueAtTime(250,t);l.frequency.linearRampToValueAtTime(900,t+dur*.6);l.frequency.linearRampToValueAtTime(250,t+dur);g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.06,t+dur*.4);g.gain.linearRampToValueAtTime(.0001,t+dur);o.connect(l);l.connect(g);g.connect(mus);o.start(t);o.stop(t+dur+.1)}}
+function musicTick(){if(!ac||!mOn)return;const sp=60/96/2;while(mT<ac.currentTime+.4){const i=mStep%16;if(PAT[i])drum(mT,i%4==0?62:78,i%4==0?1.1:.7,.45);else if(i%2==0)drum(mT,140,.12,.1);
+if(i==0)pad(mT,CH[((mStep/16)|0)%4],sp*16);mT+=sp;mStep++}setTimeout(musicTick,100)}
+function startMusic(){if(mOn||!ac)return;mus=ac.createGain();mus.gain.value=.9;mus.connect(mg);mT=ac.currentTime+.1;mOn=true;musicTick()}
+function musVol(v){if(mus)mus.gain.setTargetAtTime(v,ac.currentTime,1)}
 const NM=['REDLINE','BLACKOUT','GHOST','NIGHTHAWK','BLUE VIPER'],LOC=['Downtown, main road','Market Street, main road','Rush-hour crowd, main road','Main road at night, spotlight lost','Main road at night, heavy crowd'];
-function showDossier(){spawn();state='menu';const c=cfg,hx='#'+c.col.toString(16).padStart(6,'0');
+function showDossier(){musVol(.9);spawn();state='menu';const c=cfg,hx='#'+c.col.toString(16).padStart(6,'0');
 $('dst').textContent='STAGE '+(stage+1)+' \u00b7 '+c.n.toUpperCase();$('dnm').textContent='CODENAME: '+NM[stage];
 $('dsvg').innerHTML='<defs><radialGradient id="bg" cx=".5" cy=".3" r=".9"><stop offset="0" stop-color="#3a4054"/><stop offset="1" stop-color="#0c0e14"/></radialGradient></defs><rect width="120" height="150" fill="url(#bg)"/><path d="M8 150 C10 112 34 100 60 100 C86 100 110 112 112 150Z" fill="'+hx+'" stroke="#0008" stroke-width="2"/><rect x="52" y="86" width="16" height="18" fill="#d8a982"/><ellipse cx="60" cy="68" rx="20" ry="24" fill="#d8a982"/><path d="M38 62 C38 38 82 38 82 62 L82 56 C80 34 40 34 38 56Z" fill="#cc1111"/><path d="M38 60 L22 64 C32 70 38 66 40 64Z" fill="#a00d0d"/><rect x="48" y="66" width="7" height="3" fill="#222"/><rect x="65" y="66" width="7" height="3" fill="#222"/><rect x="52" y="82" width="16" height="2" fill="#7a4a3a"/><circle cx="60" cy="75" r="52" fill="none" stroke="#ff3a3a" stroke-opacity=".7" stroke-width="1.2"/><path d="M60 15V135M8 75H112" stroke="#ff3a3a" stroke-opacity=".5"/>';
 $('dw').textContent='Wearing: '+c.w+(stage>0?' + red cap':'');$('dl').textContent='Last seen: '+LOC[stage];
 $('dh').textContent=c.mk?'Marked with a red diamond':c.beam?'Tracked by helicopter spotlight':'No marker. Identify by sight';
 $('dos').style.display='flex'}
 $('dgo').onclick=()=>{$('dos').style.display='none';startStage()};
-$('cgo').onclick=()=>{try{startAudio()}catch(e){}$('cover').style.display='none';showDossier()};
+$('cgo').onclick=()=>{try{startAudio();startMusic()}catch(e){}$('cover').style.display='none';showDossier()};
 $('go').onclick=()=>{if(won)stage++;$('ov').style.display='none';showDossier()};
 function fire(){if(state!=='play'||bull||ammo<=0)return;ammo--;shotSnd();const d=dirOf();
 kick=1;panic=1;setTimeout(screams,300);const E=eye();bull={pos:E.clone().addScaledVector(d,1),st0:E,dir:d,alive:true,hold:0,res:'miss'};bm.visible=true;flash.position.copy(E).addScaledVector(d,2);flash.intensity=6}
-function end(r){state='over';won=r=='win';if(won&&stage==4)stage=-1;const m={win:['TARGET ELIMINATED','Clean shot. Command confirms the suspect is down. Good work, sniper.'],civ:['MISSION FAILED','A civilian was hit. Operation aborted.'],out:['OUT OF AMMO','The suspect got away.'],time:['TIME UP','The suspect escaped.']}[r];
+function end(r){musVol(.7);state='over';won=r=='win';if(won&&stage==4)stage=-1;const m={win:['TARGET ELIMINATED','Clean shot. Command confirms the suspect is down. Good work, sniper.'],civ:['MISSION FAILED','A civilian was hit. Operation aborted.'],out:['OUT OF AMMO','The suspect got away.'],time:['TIME UP','The suspect escaped.']}[r];
 if(won)m[1]=stage<0?'All 5 stages complete. Outstanding work, sniper.':'Stage '+(stage+1)+' cleared. Good shot, no civilian casualties.';$('ot').textContent=m[0];$('om').textContent=m[1];$('go').textContent=won?(stage<0?'PLAY AGAIN':'NEXT STAGE'):'TRY AGAIN';$('ov').style.display='flex';
 say(r=='win'?stage<0?'All targets neutralized. Outstanding work. Mission complete.':'Target down. Great shot. No civilian casualties. Stand by for the next assignment.':r=='civ'?'Civilian down! Abort, abort!':'Target lost. Stand down.')}
 function stepBullet(dt){const dist=400*dt,n=Math.max(1,Math.ceil(dist/.5)),v=bull.dir.clone().multiplyScalar(dist/n);
