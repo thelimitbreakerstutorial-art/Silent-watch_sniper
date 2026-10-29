@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Silent Watch – Sniper</title>
+<style>
+:root{--fg:#e8eefc;--bg:#05070d;box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;position:fixed;inset:0;width:100%;height:100%}
+.hud{position:fixed;left:0;right:0;pointer-events:none;padding:0 12px;font-size:13px;text-shadow:0 1px 3px #000}
+#top{top:env(safe-area-inset-top,0px);padding-top:8px;display:flex;justify-content:space-between;gap:8px}
+#radio{top:calc(env(safe-area-inset-top,0px) + 44px);text-align:center;color:#9dffb0;font-size:14px;min-height:20px}
+#bar{bottom:0;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;justify-content:space-between;align-items:flex-end}
+.col{display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+button{font:600 14px system-ui;color:var(--fg);background:#1a2234cc;border:1px solid #ffffff44;border-radius:12px;padding:12px 16px}
+button:active{background:#33405e}
+#fire{background:#c0282acc;width:96px;height:96px;border-radius:50%;font-size:16px}
+#scope{position:fixed;inset:0;display:none;pointer-events:none;background:radial-gradient(circle at 50% 50%,transparent 0,transparent 33vmin,#000 33.6vmin)}
+#scope:before,#scope:after{content:"";position:absolute;background:#000d}
+#scope:before{left:50%;top:calc(50% - 33vmin);width:1px;height:66vmin}
+#scope:after{top:50%;left:calc(50% - 33vmin);height:1px;width:66vmin}
+#dot{position:fixed;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;border:1px solid #fff9;pointer-events:none}
+#ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#05070dd9;text-align:center;padding:24px}
+#ov h1{margin:0;letter-spacing:.2em;font-size:28px}
+#joy{width:120px;height:120px;border-radius:50%;background:#ffffff18;border:1px solid #ffffff44;position:relative;pointer-events:auto;touch-action:none}
+#knob{position:absolute;left:40px;top:40px;width:40px;height:40px;border-radius:50%;background:#ffffff77}
+#ov p{max-width:420px;margin:0;color:#b8c4e0;font-size:14px;line-height:1.5}
+</style></head><body>
+<div id="top" class="hud"><span>🎯 Target: RED JACKET (marked)</span><span id="st"></span></div>
+<div id="radio" class="hud"></div>
+<div id="scope"></div><div id="dot"></div>
+<div id="bar" class="hud">
+<div id="joy"><div id="knob"></div></div>
+<div class="col" style="align-items:center"><button id="bj">⬆ Climb</button><button id="bz">🔭 Zoom</button><button id="bv">👁 View</button><button id="bb">💨 Hold</button><button id="fire">FIRE</button></div>
+</div>
+<div id="ov"><h1 id="ot">SILENT WATCH</h1><p id="om">You are on a skyscraper roof at dusk. Below: the main road, parked cars, pedestrians. The suspect in the red jacket is marked by the helicopter spotlight. One clean shot. Hit a civilian and you fail.<br><br>Walk around the roof with the stick (or WASD) to the edge, then double-tap the screen (or press Climb / C) to jump onto the barrier and look down at the street. Drag (or arrows) to aim · Zoom for scope · Hold breath to steady · Space fire, Z zoom, V view, Shift breath</p><button id="go">START MISSION</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id),R=THREE,V3=(x,y,z)=>new R.Vector3(x,y,z);
+const renderer=new R.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=R.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const scene=new R.Scene();scene.fog=new R.FogExp2(0x7a5a72,.0038);
+const cam=new R.PerspectiveCamera(55,1,.1,900);cam.rotation.order='YXZ';
+function rs(){renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',rs);rs();
+// sky
+scene.add(new R.Mesh(new R.SphereGeometry(600,16,12),new R.ShaderMaterial({side:R.BackSide,depthWrite:false,
+vertexShader:'varying float h;void main(){h=normalize(position).y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+fragmentShader:'varying float h;void main(){vec3 a=vec3(1.,.56,.34),b=vec3(.45,.28,.55),c=vec3(.03,.06,.2);float k=max(h,0.);vec3 col=mix(a,b,smoothstep(0.,.22,k));col=mix(col,c,smoothstep(.18,.75,k));gl_FragColor=vec4(col,1.);}'})));
+scene.add(new R.HemisphereLight(0x9a86c8,0x3a2e40,.95));
+const sun=new R.DirectionalLight(0xffa868,1.15);sun.position.set(-90,40,-40);sun.target.position.set(0,0,-58);scene.add(sun,sun.target);
+sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-100,right:100,top:60,bottom:-60,near:10,far:260});
+const mat=c=>new R.MeshLambertMaterial({color:c});
+function box(w,h,d,c,x,y,z,sh){const m=new R.Mesh(new R.BoxGeometry(w,h,d),typeof c=='number'?mat(c):c);m.position.set(x,y,z);if(sh!==0){m.castShadow=true;m.receiveShadow=true}scene.add(m);return m}
+function flat(w,d,x,y,z,c){const m=new R.Mesh(new R.PlaneGeometry(w,d),mat(c));m.rotation.x=-Math.PI/2;m.position.set(x,y,z);m.receiveShadow=true;scene.add(m);return m}
+// ground, road, sidewalks
+flat(1400,1400,0,-.02,0,0x3a3d36);flat(500,22,0,.02,-58,0x2b2d34);
+box(500,.18,6,0x9a968c,0,.09,-44);box(500,.18,6,0x9a968c,0,.09,-72);
+for(let x=-240;x<240;x+=8){flat(3,.25,x,.03,-58,0xe8c44a)}
+for(let x=-240;x<240;x+=10){flat(4,.2,x,.03,-51,0xdddddd);flat(4,.2,x,.03,-65,0xdddddd)}
+for(let i=0;i<9;i++)flat(.55,18,-4+i,.035,-58,0xf0f0f0);
+// buildings
+const boxes=[];
+function wmat(wall,w,h){const pat=Array.from({length:50},Math.random);
+const mk=l=>{const c=document.createElement('canvas');c.width=64;c.height=128;const g=c.getContext('2d');g.fillStyle=l?'#000':wall;g.fillRect(0,0,64,128);
+pat.forEach((r,i)=>{g.fillStyle=r<.45?(l?'#ffcf7a':'#ffe6a8'):(l?'#000':'#1c2434');g.fillRect(5+(i%5)*12,5+((i/5)|0)*12,7,8)});
+const t=new R.CanvasTexture(c);t.wrapS=t.wrapT=R.RepeatWrapping;t.repeat.set(Math.max(1,Math.round(w/10)),Math.max(1,Math.round(h/16)));return t};
+return new R.MeshLambertMaterial({map:mk(0),emissive:0xffffff,emissiveMap:mk(1),emissiveIntensity:.8})}
+const walls=['#7a5c52','#8a8f9a','#6b7a8f','#a79a85','#5c6670','#7d6a5a'],roofM=mat(0x3a3a42);
+function bld(x,z,w,d,h){const s=wmat(walls[(Math.random()*walls.length)|0],Math.max(w,d),h);const m=box(w,h,d,0,x,h/2,z);m.material=[s,s,roofM,roofM,s,s];boxes.push(new R.Box3().setFromObject(m))}
+const TH=48;bld(0,0,18,18,TH);
+for(let x=-150;x<150;x+=22)bld(x+Math.random()*4,-28,14+Math.random()*6,14,8+Math.random()*7);
+for(let x=-170;x<170;x+=24)bld(x+Math.random()*4,-98,20,20,14+Math.random()*24);
+for(let x=-220;x<220;x+=30)bld(x,-160-Math.random()*60,26,26,45+Math.random()*70);
+for(const [x,z,w,d,h] of [[-80,40,24,24,40],[90,30,24,24,55],[-170,-10,24,24,35],[170,-10,24,24,40]])bld(x,z,w,d,h);
+// parapet
+for(const [x,z,w,d] of [[0,-8.7,18,.6],[0,8.7,18,.6],[-8.7,0,.6,18],[8.7,0,.6,18]])box(w,1,d,0x4a4e58,x,TH+.5,z);
+// street lamps
+for(let x=-60;x<=60;x+=20)for(const z of [-46.5,-69.5]){box(.15,6,.15,0x333840,x,3,z);
+const b=new R.Mesh(new R.SphereGeometry(.35,8,6),new R.MeshBasicMaterial({color:0xffd9a0}));b.position.set(x,6.1,z+(z>-58?-.8:.8));scene.add(b);
+if(Math.abs(x)%40==0&&z<-60||Math.abs(x)==20&&z>-60){const l=new R.PointLight(0xffc880,.9,34);l.position.copy(b.position);scene.add(l)}}
+// cars
+const cars=[];
+function mkCar(x,z,col,dir,mv){const g=new R.Group(),m=(w,h,d,c,px,py,pz,mt)=>{const o=new R.Mesh(new R.BoxGeometry(w,h,d),mt||mat(c));o.position.set(px,py,pz);o.castShadow=true;g.add(o)};
+m(4.2,.7,1.8,0,0,.6,0,new R.MeshStandardMaterial({color:col,roughness:.4,metalness:.3}));m(2.2,.65,1.6,0x1b2a3a,-.3,1.25,0);
+for(const z of [-.6,.6]){m(.1,.2,.35,0,2.1,.7,z,new R.MeshBasicMaterial({color:0xfff2c0}));m(.1,.2,.35,0,-2.1,.7,z,new R.MeshBasicMaterial({color:0xff2a2a}))}
+for(const px of [-1.3,1.3])for(const z of [-.9,.9]){const w=new R.Mesh(new R.CylinderGeometry(.35,.35,.25,10),mat(0x111111));w.rotation.x=Math.PI/2;w.position.set(px,.35,z);g.add(w)}
+g.position.set(x,0,z);g.rotation.y=dir>0?0:Math.PI;scene.add(g);cars.push({g,x,z,dir,mv})}
+const cc=[0xb02828,0x2a5aa8,0xe8e8e8,0x222222,0xd8b020,0x2e8a5a,0x888c94];
+for(const [z,dir] of [[-48.3,1],[-67.7,-1]])for(let x=-60;x<60;x+=8+Math.random()*6)if(Math.random()<.7)mkCar(x,z,cc[(Math.random()*7)|0],dir,0);
+for(let i=0;i<2;i++){mkCar(-70+i*70,-54.5,cc[(i+2)%7],1,1);mkCar(60-i*70,-61.5,cc[(i+4)%7],-1,1)}
+// people
+const people=[];let suspect;
+function person(col,sus){const g=new R.Group(),sk=[0xd8a982,0xa8754f,0x7a5238][(Math.random()*3)|0],u={};
+const add=(w,h,d,c,x,y,z,p)=>{const o=new R.Mesh(new R.BoxGeometry(w,h,d),mat(c));o.position.set(x,y,z);o.castShadow=true;(p||g).add(o);return o};
+add(.5,.62,.28,col,0,1.15,0);
+const head=new R.Mesh(new R.SphereGeometry(.15,10,8),mat(sk));head.position.y=1.6;head.castShadow=true;g.add(head);
+add(.32,.1,.3,sus?0x111111:[0x222222,0x4a3020,0xcfb070][(Math.random()*3)|0],0,1.72,0);
+const pv=(x,y,w,h,c,k)=>{const p=new R.Group();p.position.set(x,y,0);g.add(p);add(w,h,.18,c,0,-h/2,0,p);u[k]=p};
+pv(-.13,.82,.2,.82,sus?0x1a1a22:0x2c3140,'lL');pv(.13,.82,.2,.82,sus?0x1a1a22:0x2c3140,'lR');
+pv(-.34,1.42,.13,.6,col,'aL');pv(.34,1.42,.13,.6,col,'aR');
+g.userData=u;g.scale.setScalar(1.1);scene.add(g);return g}
+const cols=[0x3a6ea5,0x3f8f5f,0xdedede,0xd2b04a,0x7a5aa8,0x5a6068,0x2a2a30,0x4aa8a8,0xe08a3a];
+for(let i=0;i<20;i++){const sus=i==0,lane=[-43,-45,-71,-73][i%4],x=sus?-30:(Math.random()-.5)*110;
+const p={g:person(sus?0xdc1414:cols[i%cols.length],sus),x,z:sus?-44:lane,dir:sus?1:(Math.random()<.5?-1:1),sp:sus?1.6:1+Math.random()*.7,ph:Math.random()*6,pause:0,sus,dead:false};
+if(i>0&&i<4){p.x=-25+i*6;p.z=-45}if(sus)suspect=p;people.push(p)}
+const mk=new R.Mesh(new R.ConeGeometry(.3,.6,4),new R.MeshBasicMaterial({color:0xff2020}));mk.rotation.x=Math.PI;mk.position.y=2.6;suspect.g.add(mk);
+// helicopter
+const heli=new R.Group(),rotor=new R.Group(),trot=new R.Group();
+{const b=new R.Mesh(new R.SphereGeometry(2,14,10),mat(0x2a323c));b.scale.set(.9,.85,1.7);
+const gl=new R.Mesh(new R.SphereGeometry(1.3,10,8),new R.MeshBasicMaterial({color:0x6aa0c8}));gl.position.set(0,.2,-2);gl.scale.set(.9,.8,1);
+const tl=new R.Mesh(new R.BoxGeometry(.35,.35,6),mat(0x2a323c));tl.position.z=5;const fin=new R.Mesh(new R.BoxGeometry(.1,1.4,.9),mat(0x2a323c));fin.position.set(0,.7,7.8);
+for(const s of [-1,1]){const k=new R.Mesh(new R.BoxGeometry(.12,.12,4),mat(0x111111));k.position.set(s*1.3,-1.9,0);heli.add(k)}
+for(let i=0;i<2;i++){const bl=new R.Mesh(new R.BoxGeometry(13,.06,.35),mat(0x151515));bl.rotation.y=i*Math.PI/2;rotor.add(bl)}
+rotor.position.y=2;trot.position.set(.2,.7,7.8);const tb=new R.Mesh(new R.BoxGeometry(.05,1.6,.2),mat(0x151515));trot.add(tb);
+const led=new R.Mesh(new R.SphereGeometry(.22),new R.MeshBasicMaterial({color:0xff2222}));led.position.set(0,1.6,2);led.name='led';
+heli.add(b,gl,tl,fin,rotor,trot,led);scene.add(heli)}
+const spot=new R.SpotLight(0xe0ecff,3,260,.14,.5);heli.add(spot);spot.target=suspect.g;
+const beam=new R.Mesh(new R.CylinderGeometry(.3,3.2,1,16,1,true),new R.MeshBasicMaterial({color:0xcfe0ff,transparent:true,opacity:.11,depthWrite:false,blending:R.AdditiveBlending,side:R.DoubleSide}));scene.add(beam);
+// sniper model
+const P=V3(0,TH+1.6,0),me=new R.Group(),rifle=new R.Group();
+{const a=(w,h,d,c,x,y,z,p)=>{const o=new R.Mesh(new R.BoxGeometry(w,h,d),mat(c));o.position.set(x,y,z);o.castShadow=true;(p||me).add(o)};
+a(.5,.4,1.1,0x2b3a2b,0,TH+.4,.3);a(.6,.8,.4,0x2f4130,0,TH+1,.2);const h=new R.Mesh(new R.SphereGeometry(.22,10,8),mat(0xd8a982));h.position.y=TH+1.6;me.add(h);
+a(.1,.12,2.2,0x15181c,.1,0,-1,rifle);a(.08,.14,.5,0x000000,.1,.14,-.6,rifle);rifle.position.set(0,TH+1.2,0);me.add(rifle);me.visible=false;scene.add(me)}
+const bm=new R.Mesh(new R.BoxGeometry(.07,.07,3),new R.MeshBasicMaterial({color:0xffe9a0}));bm.visible=false;scene.add(bm);
+const flash=new R.PointLight(0xffd080,0,40);scene.add(flash);
+// audio
+let ac,mg,nb,hg,hp;
+function startAudio(){ac=new(window.AudioContext||window.webkitAudioContext)();mg=ac.createGain();mg.gain.value=.8;mg.connect(ac.destination);
+nb=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate);const d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+const nz=(f,q,v,dest)=>{const n=ac.createBufferSource();n.buffer=nb;n.loop=true;const b=ac.createBiquadFilter();b.type='bandpass';b.frequency.value=f;b.Q.value=q;const g=ac.createGain();g.gain.value=v;n.connect(b);b.connect(g);g.connect(dest);n.start();return g};
+hp=ac.createStereoPanner();hp.connect(mg);hg=nz(260,.7,.5,hp);const lfo=ac.createOscillator();lfo.frequency.value=11;const ld=ac.createGain();ld.gain.value=.35;lfo.connect(ld);ld.connect(hg.gain);lfo.start();
+const o=ac.createOscillator();o.type='sawtooth';o.frequency.value=48;const lp=ac.createBiquadFilter();lp.frequency.value=160;const og=ac.createGain();og.gain.value=.1;o.connect(lp);lp.connect(og);og.connect(hp);o.start();
+nz(500,.3,.07,mg)}
+function burst(dur,f,type,vol){const s=ac.createBufferSource();s.buffer=nb;const fl=ac.createBiquadFilter();fl.type=type;fl.frequency.value=f;const g=ac.createGain();g.gain.setValueAtTime(vol,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+dur);s.connect(fl);fl.connect(g);g.connect(mg);s.start();s.stop(ac.currentTime+dur+.1)}
+function shotSnd(){if(!ac)return;burst(.5,2800,'lowpass',1.4);const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(140,ac.currentTime);o.frequency.exponentialRampToValueAtTime(30,ac.currentTime+.3);g.gain.setValueAtTime(1.2,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.35);o.connect(g);g.connect(mg);o.start();o.stop(ac.currentTime+.4);
+const dl=ac.createDelay();dl.delayTime.value=.38;const fb=ac.createGain();fb.gain.value=.35;dl.connect(fb);fb.connect(dl);const eg=ac.createGain();eg.gain.value=.5;g.connect(dl);dl.connect(eg);eg.connect(mg)}
+function say(t){$('radio').textContent='📻 '+t;clearTimeout(say.h);say.h=setTimeout(()=>$('radio').textContent='',5200);
+if(ac){burst(.25,1800,'highpass',.25);const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=1250;g.gain.value=.08;o.connect(g);g.connect(mg);o.start();o.stop(ac.currentTime+.08)}
+try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.rate=1.1;u.pitch=.6;speechSynthesis.speak(u)}catch(e){}}
+const lines=["Command to Sniper. Suspect is on the main road, red jacket. Over.","Helicopter one overhead. Spotlight is on the target.","Sniper, pedestrians nearby. Wait for a clear shot.","Suspect is moving along the sidewalk. Stay sharp.","Command here. You are cleared to fire when ready.","Wind is light. Take your time. Breathe."];
+let li=0;function radioLoop(){if(state!=='play')return;say(lines[li++%lines.length]);setTimeout(radioLoop,11000+Math.random()*6000)}
+// state & input
+let state='menu',yaw=0,pitch=-.69,zoom=false,third=false,breath=false,breathT=4,ammo=5,left=150,bull=null,t=0;const SW={x:0,y:0},keys={};
+let up=false,hop=0,lt=0;
+function climb(){if(state!=='play'||bull)return;const ax=Math.abs(P.x),az=Math.abs(P.z);
+if(!up){if(Math.max(ax,az)<7){$('radio').textContent='Walk to the roof edge to climb up';clearTimeout(say.h);say.h=setTimeout(()=>$('radio').textContent='',2500);return}up=true;if(ax>=az)P.x=Math.sign(P.x)*8.7;else P.z=Math.sign(P.z)*8.7}
+else{up=false;if(ax>=az)P.x=Math.sign(P.x)*8;else P.z=Math.sign(P.z)*8}hop=.35}
+function eye(){const e=P.clone();e.y+=Math.sin(hop/.35*Math.PI)*.5;const l=Math.max(0,Math.min(1,(-pitch-.8)/.5))*1.2;if(Math.abs(P.x)>7.2)e.x+=Math.sign(P.x)*l;if(Math.abs(P.z)>7.2)e.z+=Math.sign(P.z)*l;return e}
+let jx=0,jy=0,jp=null;const joy=$('joy'),kn=$('knob');
+function jmove(e){const r=joy.getBoundingClientRect();let dx=(e.clientX-r.left-60)/50,dy=(e.clientY-r.top-60)/50;const l=Math.hypot(dx,dy);if(l>1){dx/=l;dy/=l}jx=dx;jy=dy;kn.style.transform='translate('+dx*40+'px,'+dy*40+'px)'}
+joy.addEventListener('pointerdown',e=>{jp=e.pointerId;joy.setPointerCapture(e.pointerId);jmove(e)});
+joy.addEventListener('pointermove',e=>{if(e.pointerId===jp)jmove(e)});
+const jend=e=>{if(e.pointerId===jp){jp=null;jx=jy=0;kn.style.transform=''}};joy.addEventListener('pointerup',jend);joy.addEventListener('pointercancel',jend);
+function dirOf(){const ay=yaw+SW.x,ap=pitch+SW.y;return V3(-Math.sin(ay)*Math.cos(ap),Math.sin(ap),-Math.cos(ay)*Math.cos(ap))}
+let pd=null;const cv=renderer.domElement;
+cv.addEventListener('pointerdown',e=>pd=e);addEventListener('pointerup',()=>pd=null);
+cv.addEventListener('pointermove',e=>{if(!pd||bull||state!=='play')return;const k=cam.fov/55*.0032;yaw-=(e.clientX-pd.clientX)*k;pitch=Math.max(-1.55,Math.min(.4,pitch-(e.clientY-pd.clientY)*k));pd=e});
+cv.addEventListener('wheel',e=>{zoom=e.deltaY<0});
+addEventListener('keydown',e=>{keys[e.code]=1;if(e.code=='Space')fire();if(e.code=='KeyZ')zoom=!zoom;if(e.code=='KeyV')third=!third;if(e.code=='KeyC')climb();if(e.key=='Shift')breath=true});
+addEventListener('keyup',e=>{keys[e.code]=0;if(e.key=='Shift')breath=false});
+$('bj').onclick=climb;cv.addEventListener('pointerdown',()=>{const n=performance.now();if(n-lt<320)climb();lt=n});$('bz').onclick=()=>zoom=!zoom;$('bv').onclick=()=>third=!third;$('fire').onpointerdown=e=>{e.preventDefault();fire()};
+$('bb').onpointerdown=()=>breath=true;$('bb').onpointerup=$('bb').onpointerleave=()=>breath=false;
+$('go').onclick=()=>{if(state=='over'){location.reload();return}$('ov').style.display='none';state='play';try{startAudio()}catch(e){}setTimeout(radioLoop,1500)};
+function fire(){if(state!=='play'||bull||ammo<=0)return;ammo--;shotSnd();const d=dirOf();
+const E=eye();bull={pos:E.clone().addScaledVector(d,1),st0:E,dir:d,alive:true,hold:0,res:'miss'};bm.visible=true;flash.position.copy(E).addScaledVector(d,2);flash.intensity=6}
+function end(r){state='over';const m={win:['TARGET ELIMINATED','Clean shot. Command confirms the suspect is down. Good work, sniper.'],civ:['MISSION FAILED','A civilian was hit. Operation aborted.'],out:['OUT OF AMMO','The suspect got away.'],time:['TIME UP','The suspect escaped.']}[r];
+$('ot').textContent=m[0];$('om').textContent=m[1];$('go').textContent='TRY AGAIN';$('ov').style.display='flex';
+say(r=='win'?'Target down. Great shot. Egress now.':r=='civ'?'Civilian down! Abort, abort!':'Target lost. Stand down.')}
+function stepBullet(dt){const dist=400*dt,n=Math.max(1,Math.ceil(dist/.5)),v=bull.dir.clone().multiplyScalar(dist/n);
+for(let i=0;i<n&&bull.alive;i++){bull.pos.add(v);const p=bull.pos;
+for(const q of people){if(q.dead)continue;const dx=p.x-q.x,dz=p.z-q.z;
+if(dx*dx+dz*dz<.25&&p.y>.05&&p.y<1.98){q.dead=true;bull.alive=false;bull.hold=3;bull.res=q.sus?'win':'civ';bull.hit=p.clone();
+const st=new R.Mesh(new R.CircleGeometry(.9,16),new R.MeshBasicMaterial({color:0x4a1014,transparent:true,opacity:.7}));st.rotation.x=-Math.PI/2;st.position.set(q.x,.05,q.z-.8);st.scale.setScalar(.01);scene.add(st);q.st=st;if(q.sus)mk.visible=false;return}}
+if(p.y<0||p.distanceTo(P)>520||boxes.some((b,i)=>(i||p.distanceTo(bull.st0)>4)&&b.containsPoint(p))||cars.some(c=>Math.abs(p.x-c.x)<2.1&&Math.abs(p.z-c.z)<.95&&p.y<1.6)){bull.alive=false;bull.hold=.9;bull.hit=p.clone();return}}}
+let last=performance.now(),ang=0;const UP=V3(0,1,0);
+function frame(now){requestAnimationFrame(frame);const rdt=Math.min((now-last)/1000,.05);last=now;
+const ts=bull?.15:1,dt=rdt*ts;t+=rdt;
+const k=cam.fov/55*rdt*.9;if(state=='play'&&!bull){if(keys.ArrowLeft)yaw+=k;if(keys.ArrowRight)yaw-=k;if(keys.ArrowUp)pitch=Math.min(.4,pitch+k);if(keys.ArrowDown)pitch=Math.max(-1.55,pitch-k);
+const fw=(keys.KeyW?1:0)-(keys.KeyS?1:0)-jy,sd=(keys.KeyD?1:0)-(keys.KeyA?1:0)+jx,spd=(zoom?2:4)*rdt,cl=up?8.7:8.3;
+P.x=Math.max(-cl,Math.min(cl,P.x+(-Math.sin(yaw)*fw+Math.cos(yaw)*sd)*spd));P.z=Math.max(-cl,Math.min(cl,P.z+(-Math.cos(yaw)*fw-Math.sin(yaw)*sd)*spd));
+if(up&&Math.max(Math.abs(P.x),Math.abs(P.z))<7){up=false;hop=.35}}
+breathT=Math.max(0,Math.min(4,breathT+(breath?-rdt:rdt*.6)));const sw=.008*(cam.fov/55+.3)*(breath&&breathT>0?.1:1);
+SW.x=Math.sin(t*1.3)*sw+Math.sin(t*3.1)*sw*.4;SW.y=Math.cos(t*1.7)*sw;
+for(const p of people){const g=p.g,u=g.userData;
+if(p.dead){g.rotation.x=Math.max(-1.55,g.rotation.x-dt*2.4);g.position.y=.14;if(p.st)p.st.scale.setScalar(Math.min(1,p.st.scale.x+dt*.4));continue}
+if(p.pause>0)p.pause-=dt;else{p.x+=p.dir*p.sp*dt;p.ph+=dt*p.sp*5;if(p.x>62||p.x<-62)p.dir*=-1;if(p.sus&&Math.random()<.003)p.pause=2.5}
+const s=p.pause>0?0:Math.sin(p.ph);u.lL.rotation.x=s*.6;u.lR.rotation.x=-s*.6;u.aL.rotation.x=-s*.5;u.aR.rotation.x=s*.5;
+g.position.set(p.x,.18+Math.abs(s)*.04,p.z);g.rotation.y=p.dir>0?Math.PI/2:-Math.PI/2}
+mk.position.y=2.6+Math.sin(t*4)*.12;mk.rotation.y=t*2;
+for(const c of cars){if(!c.mv)continue;c.x+=c.dir*8*dt;if(c.x>120)c.x=-120;if(c.x<-120)c.x=120;c.g.position.x=c.x}
+ang+=dt*.22;heli.position.set(Math.cos(ang)*55,72+Math.sin(ang*2)*2,-58+Math.sin(ang)*50);heli.rotation.set(0,Math.PI-ang,-.15,'YXZ');
+rotor.rotation.y+=rdt*45;trot.rotation.x+=rdt*50;heli.getObjectByName('led').visible=Math.sin(t*6)>0;
+{const a=heli.position,b=suspect.g.position.clone();b.y=.4;const d=b.clone().sub(a);beam.position.copy(a).addScaledVector(d,.5);beam.scale.set(1,d.length(),1);beam.quaternion.setFromUnitVectors(UP,d.normalize().negate())}
+if(hp){const v=heli.position.clone().sub(P),dist=v.length();hp.pan.value=Math.max(-1,Math.min(1,(v.x*Math.cos(yaw)-v.z*Math.sin(yaw))/dist));hg.gain.value=.25+.5*Math.min(1,50/dist)}
+if(state=='play'){left-=rdt;if(left<=0&&!bull)end('time')}
+flash.intensity=Math.max(0,flash.intensity-rdt*30);
+if(bull){if(bull.alive)stepBullet(dt);bm.position.copy(bull.pos);bm.lookAt(bull.pos.clone().add(bull.dir));
+if(!bull.alive){bull.hold-=rdt;if(bull.hold<=0){const r=bull.res;bull=null;bm.visible=false;pitch+=.015;if(r=='win'||r=='civ')end(r);else if(ammo<=0)end('out')}}}
+hop=Math.max(0,hop-rdt);P.y+=(TH+1.6+(up?1:0)-P.y)*Math.min(1,rdt*12);
+const tf=bull||third?60:zoom?9:55;cam.fov+=(tf-cam.fov)*Math.min(1,rdt*8);cam.updateProjectionMatrix();
+if(bull){if(bull.alive){cam.position.copy(bull.pos).addScaledVector(bull.dir,-3.5).y+=.7;cam.lookAt(bull.pos.clone().addScaledVector(bull.dir,15))}
+else if(bull.hit){cam.position.lerp(bull.hit.clone().add(V3(1.5,1.2,3)),Math.min(1,rdt*.9));cam.lookAt(bull.hit)}}
+else if(third){cam.position.set(P.x+Math.sin(yaw)*6,P.y+1.4,P.z+Math.cos(yaw)*6);cam.lookAt(dirOf().multiplyScalar(8).add(V3(P.x,P.y-.6,P.z)))}
+else{cam.position.copy(eye());cam.rotation.set(pitch+SW.y,yaw+SW.x,0)}
+me.visible=third||!!bull;me.position.set(P.x,P.y-TH-1.6,P.z);me.rotation.y=yaw;rifle.rotation.x=pitch;
+const sc=zoom&&!third&&!bull&&state=='play';$('scope').style.display=sc?'block':'none';$('dot').style.display=(!sc&&!third&&!bull)?'block':'none';
+$('st').textContent='🔫 '+ammo+'  ⏱ '+Math.ceil(left)+'s  💨 '+breathT.toFixed(1);
+renderer.render(scene,cam)}
+requestAnimationFrame(frame);
+</script></body></html>
